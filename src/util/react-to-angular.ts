@@ -25,7 +25,6 @@ export class ReactifyNgComponent implements OnChanges, OnDestroy, AfterViewInit 
     ngReactComponent: React.FunctionComponent<any> | React.ComponentClass<any>;
 
     private _root: Root;
-    public theme: string;
 
     constructor(
         private readonly ngContainer: ViewContainerRef,
