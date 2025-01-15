@@ -1,16 +1,16 @@
-import { Type, ApplicationRef, Injector, NgZone, createComponent, EventEmitter } from '@angular/core';
+import { Type, ApplicationRef, Injector, NgZone, createComponent, EventEmitter, Provider, EnvironmentProviders, ComponentRef } from '@angular/core';
 import { createApplication } from '@angular/platform-browser';
 import * as React from 'react';
 import { firstValueFrom, Subscription } from 'rxjs';
 
 
-// declare const Zone;
-// const zone = Zone ? new Zone(Zone.current, { name: "@dotglitch_menu", properties: {} }) : null;
-
 /**
- * Wrap an angular component inside of a React memo object.
+ * Wrap an Angular component inside of a React memo object.
  * Will attempt to bind @Input and @Output properties if provided,
  * and will bind the react arguments directly as @Input properties.
+ *
+ * Usage: An Angular top-level application with a ReactifyNgComponent react implementation
+ * that needs to embed Angular components as children of the react-wrapped component.
  *
  * @experimental
  * @param componentClass Angular component
@@ -20,18 +20,18 @@ import { firstValueFrom, Subscription } from 'rxjs';
  * @param _outputs
  * @returns
  */
-export const ReactifyReactComponent = ({
+export const ReactifyAngularComponent = ({
     component,
     appRef,
     injector,
     ngZone,
-    staticInputs,
-    staticOutputs,
-    preSiblings,
-    postSiblings,
-    additionalChildren,
-    rootElementName,
-    containerElementName
+    staticInputs = {},
+    staticOutputs = {},
+    preSiblings = [],
+    postSiblings = [],
+    additionalChildren = [],
+    rootElementName = '',
+    containerElementName = ''
 }: {
     component: Type<any>,
     appRef: Omit<ApplicationRef, '_runningTick'>,
@@ -46,125 +46,220 @@ export const ReactifyReactComponent = ({
     containerElementName?: string;
 }) => React.memo((args) => {
 
-    const id = Math.random().toString();
-    React.useEffect(() => {
-        try {
+    return ngZone.runOutsideAngular(() => {
+        const id = Math.random().toString();
+        React.useEffect(() => {
+            try {
 
-            const componentInstance = createComponent(component, {
-                environmentInjector: appRef.injector,
-                elementInjector: injector,
-                hostElement: document.getElementById(id)
-            });
+                const componentInstance = createComponent(component, {
+                    environmentInjector: appRef.injector,
+                    elementInjector: injector,
+                    hostElement: document.getElementById(id)
+                });
 
-            appRef.attachView(componentInstance.hostView);
-            // @ts-ignore
-            // component.hostView = hostView;
+                appRef.attachView(componentInstance.hostView);
+                // @ts-ignore
+                // component.hostView = hostView;
 
-            Object.assign(staticInputs, args);
+                Object.assign(staticInputs, args);
 
-            const { inputs, outputs } = component['ɵcmp'];
+                const { inputs, outputs } = component['ɵcmp'];
 
-            // Returns a list of entries that need to be set
-            // This makes it so that unnecessary setters are not invoked.
-            const updated = Object.entries(inputs).filter(([parentKey, childKey]: [string, string]) => {
-                return componentInstance.instance[childKey] != staticInputs[parentKey];
-            });
+                // Returns a list of entries that need to be set
+                // This makes it so that unnecessary setters are not invoked.
+                const updated = Object.entries(inputs).filter(([parentKey, childKey]: [string, string]) => {
+                    return componentInstance.instance[childKey] != staticInputs[parentKey];
+                });
 
-            updated.forEach(([parentKey, childKey]: [string, string]) => {
-                if (staticInputs.hasOwnProperty(parentKey))
-                    componentInstance.instance[childKey] = staticInputs[parentKey];
-            });
+                updated.forEach(([parentKey, childKey]: [string, string]) => {
+                    if (staticInputs.hasOwnProperty(parentKey))
+                        componentInstance.instance[childKey] = staticInputs[parentKey];
+                });
 
-            const outputSubscriptions: { [key: string]: Subscription; } = {};
-            // Get a list of unregistered outputs
-            const newOutputs = Object.entries(outputs).filter(([parentKey, childKey]: [string, string]) => {
-                return !outputSubscriptions[parentKey];
-            });
+                const outputSubscriptions: { [key: string]: Subscription; } = {};
+                // Get a list of unregistered outputs
+                const newOutputs = Object.entries(outputs).filter(([parentKey, childKey]: [string, string]) => {
+                    return !outputSubscriptions[parentKey];
+                });
 
-            // Reverse bind via subscription
-            newOutputs.forEach(([parentKey, childKey]: [string, string]) => {
-                if (!staticOutputs.hasOwnProperty(parentKey)) return;
+                // Reverse bind via subscription
+                newOutputs.forEach(([parentKey, childKey]: [string, string]) => {
+                    if (!staticOutputs.hasOwnProperty(parentKey)) return;
 
-                const target: EventEmitter<unknown> = componentInstance.instance[childKey];
-                const outputs = staticOutputs;
+                    const target: EventEmitter<unknown> = componentInstance.instance[childKey];
+                    const outputs = staticOutputs;
 
-                const sub = target.subscribe((...args) => {
-                    // Run the callback in the provided zone
-                    ngZone.run(() => {
-                        outputs[parentKey](...args);
-                    });
-                }); // Subscription
+                    const sub = target.subscribe((...args) => {
+                        // Run the callback in the provided zone
+                        ngZone.run(() => {
+                            outputs[parentKey](...args);
+                        });
+                    }); // Subscription
 
-                outputSubscriptions[parentKey] = sub;
-            });
+                    outputSubscriptions[parentKey] = sub;
+                });
 
-            // Wrap the destroy method to safely release the subscriptions
-            const originalDestroy = componentInstance.onDestroy?.bind(componentInstance);
-            componentInstance.onDestroy = (cb) => {
-                Object.values(outputSubscriptions).forEach(s => s.unsubscribe());
-                originalDestroy?.(cb);
-            };
+                // Wrap the destroy method to safely release the subscriptions
+                const originalDestroy = componentInstance.onDestroy?.bind(componentInstance);
+                componentInstance.onDestroy = (cb) => {
+                    Object.values(outputSubscriptions).forEach(s => s.unsubscribe());
+                    originalDestroy?.(cb);
+                };
 
-            componentInstance.changeDetectorRef.detectChanges();
-        }
-        catch (err) {
-            console.error(err);
-        }
-    }, []);
+                componentInstance.changeDetectorRef.detectChanges();
+            }
+            catch (err) {
+                console.error(err);
+            }
+        }, []);
 
-    const elements = [
-        ...(preSiblings || []),
-        React.createElement(containerElementName || "div", { id }),
-        ...(postSiblings || []),
-        ...(additionalChildren || [])
-    ].filter(e => e);
+        const elements = [
+            ...(preSiblings || []),
+            React.createElement(containerElementName || "div", { id }),
+            ...(postSiblings || []),
+            ...(additionalChildren || [])
+        ].filter(e => e);
 
-    return React.createElement(rootElementName || "div", {}, ...elements);
+        return React.createElement(rootElementName || "div", {}, ...elements);
+    })
 });
+// TODO: Remove in major release.
+export const ReactifyReactComponent = ReactifyAngularComponent;
 
-
-export const ReactifyAngularComponent2 = (
+/**
+ * Do not use this.
+ * @hidden
+ * @experimental
+ */
+export function ReactifyAngularComponent3(
     component: Type<any>,
-    props: any
-) => {
-    const inputRef = React.useRef(null);
+    ngZone: NgZone,
+    appRef: Omit<ApplicationRef, '_runningTick'>,
+    injector: Injector,
+    props: any = {},
+    containerTag: string = 'div'
+) {
     const ctx = this;
+    console.log("ReactifyAngularComponent3")
 
-    React.useEffect(() => {
+    return ngZone.runOutsideAngular(() => {
         // Is there a better way to do this?
         let subscriptions: Subscription[];
         let app: ApplicationRef;
-        (async () => {
-            // Code to run when the component mounts
-            app = await createApplication({ providers: [] });
-            const base = app.bootstrap(component, inputRef.current);
-            const { instance } = base;
+        let componentInstance: ComponentRef<any>;
 
-            await firstValueFrom(app.isStable);
+        React.useEffect(() => {
+            return () => {
+                // Code to run when the component unmounts
+                subscriptions?.forEach(s => s?.unsubscribe());
+                // app?.destroy();
 
-            // App has now bootstrapped fully.
-            subscriptions = [];
-            Object.entries(instance).filter(([k, v]) => {
-                // @Outputs are always Event Emitters (I think)
-                if (v instanceof EventEmitter) {
-                    subscriptions.push(
-                        instance[k]?.subscribe(evt => props[k].call(ctx, evt))
-                    );
-                }
-                else {
-                    instance[k] = props[k];
-                }
-            })
-        })()
+                appRef.detachView(componentInstance.hostView);
+            };
+        }, []);
 
+        return React.createElement(containerTag, {
+            ref: async (node) => {
+                // Not sure if this ever actually happens, added as a preventative measure
+                // to memory leaks.
+                subscriptions?.forEach(s => s?.unsubscribe());
+                app?.destroy();
+
+
+                // ngZone.run(async () => {
+                // Init an Angular application root & bootstrap it to a DOM element.
+
+                componentInstance = createComponent(component, {
+                    environmentInjector: appRef.injector,
+                    elementInjector: injector,
+                    hostElement: node
+                });
+
+                appRef.attachView(componentInstance.hostView);
+                // app = await createApplication({ providers });
+                // const base = app.bootstrap(component, node);
+                // const { instance } = base;
+
+
+                // Wait for the JS to finish rendering and initing.
+                // await firstValueFrom(app.isStable);
+
+                // Now that everything has settled, bind inputs and outputs.
+                subscriptions = [];
+                Object.entries(props).filter(([k, v]) => {
+                    // @Outputs are always Event Emitters (I think)
+                    if (v instanceof EventEmitter) {
+                        subscriptions.push(
+                            componentInstance.instance[k]?.subscribe(evt => props[k].call(ctx, evt))
+                        );
+                    }
+                    else {
+                        componentInstance.instance[k] = props[k];
+                    }
+                });
+                // })
+
+                // app.tick();
+            }
+        });
+    });
+}
+
+
+/**
+ * Bootstrap an Angular component with `createApplication` and export it under a
+ * react Element.
+ * Usage: React top-level application embedding an Angular component.
+ */
+export function ReactifyStandaloneAngularComponent(
+    component: Type<any>,
+    props: any = {},
+    providers: (Provider | EnvironmentProviders)[] = [],
+    containerTag: string = 'div'
+) {
+    const ctx = this;
+
+    // Is there a better way to do this?
+    let subscriptions: Subscription[];
+    let app: ApplicationRef;
+
+    React.useEffect(() => {
         return () => {
             // Code to run when the component unmounts
             subscriptions?.forEach(s => s?.unsubscribe());
             app?.destroy();
         };
-    }, []); // Empty dependency array ensures this effect runs only once on mount and cleanup on unmount
+    }, []);
 
-    const obj = {};
+    return React.createElement(containerTag, { ref: async (node) => {
+        // Not sure if this ever actually happens, added as a preventative measure
+        // to memory leaks.
+        subscriptions?.forEach(s => s?.unsubscribe());
+        app?.destroy();
 
-    return React.createElement("div")
+        // Init an Angular application root & bootstrap it to a DOM element.
+        app = await createApplication({ providers });
+        const base = app.bootstrap(component, node);
+        const { instance } = base;
+
+
+        // Wait for the JS to finish rendering and initing.
+        await firstValueFrom(app.isStable);
+
+        // Now that everything has settled, bind inputs and outputs.
+        subscriptions = [];
+        Object.entries(props).filter(([k, v]) => {
+            // @Outputs are always Event Emitters (I think)
+            if (v instanceof EventEmitter) {
+                subscriptions.push(
+                    instance[k]?.subscribe(evt => props[k].call(ctx, evt))
+                );
+            }
+            else {
+                instance[k] = props[k];
+            }
+        });
+
+        base.changeDetectorRef.detectChanges();
+    } });
 }

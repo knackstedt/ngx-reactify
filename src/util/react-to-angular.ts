@@ -1,4 +1,4 @@
-import { AfterViewInit, ApplicationRef, Component, ComponentFactoryResolver, EnvironmentInjector, EventEmitter, Injector, NgZone, OnChanges, OnDestroy, SimpleChanges, Type, ViewContainerRef, ViewRef, createComponent } from '@angular/core';
+import { AfterViewInit, Component, NgZone, OnChanges, OnDestroy, SimpleChanges, ViewContainerRef } from '@angular/core';
 import * as React from 'react';
 import { createRoot, Root } from 'react-dom/client';
 
@@ -27,14 +27,14 @@ export class ReactifyNgComponent implements OnChanges, OnDestroy, AfterViewInit 
     private _root: Root;
 
     constructor(
-        private readonly ngContainer: ViewContainerRef,
-        private readonly ngZone: NgZone
+        protected readonly ngContainer: ViewContainerRef,
+        protected readonly ngZone: NgZone
     ) {
     }
 
     ngOnInit() {
         if (!this.ngReactComponent) {
-            throw new Error("ReactMagicWrapperComponent cannot start without a provided ngReactComponent!");
+            throw new Error("ReactifyNgComponent cannot be inherited without a provided ngReactComponent!");
         }
     }
 
@@ -80,7 +80,9 @@ export class ReactifyNgComponent implements OnChanges, OnDestroy, AfterViewInit 
                     evtKeys.forEach(k => props[k] = (...args) => this[k].next(args));
                 })
 
-                this._root.render(React.createElement(this.ngReactComponent, { props: props as any }));
+                this._root.render(
+                    React.createElement(this.ngReactComponent, { props: props as any })
+                );
             }
             catch(err) {
                 console.error(err)
