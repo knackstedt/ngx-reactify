@@ -145,14 +145,12 @@ export function ReactifyAngularComponent3(
     return ngZone.runOutsideAngular(() => {
         // Is there a better way to do this?
         let subscriptions: Subscription[];
-        let app: ApplicationRef;
         let componentInstance: ComponentRef<any>;
 
         React.useEffect(() => {
             return () => {
                 // Code to run when the component unmounts
                 subscriptions?.forEach(s => s?.unsubscribe());
-                // app?.destroy();
 
                 appRef.detachView(componentInstance.hostView);
             };
@@ -163,12 +161,8 @@ export function ReactifyAngularComponent3(
                 // Not sure if this ever actually happens, added as a preventative measure
                 // to memory leaks.
                 subscriptions?.forEach(s => s?.unsubscribe());
-                app?.destroy();
 
-
-                // ngZone.run(async () => {
-                // Init an Angular application root & bootstrap it to a DOM element.
-
+                // Init the Angular component with the context of the root Angular app.
                 componentInstance = createComponent(component, {
                     environmentInjector: appRef.injector,
                     elementInjector: injector,
@@ -176,13 +170,6 @@ export function ReactifyAngularComponent3(
                 });
 
                 appRef.attachView(componentInstance.hostView);
-                // app = await createApplication({ providers });
-                // const base = app.bootstrap(component, node);
-                // const { instance } = base;
-
-
-                // Wait for the JS to finish rendering and initing.
-                // await firstValueFrom(app.isStable);
 
                 // Now that everything has settled, bind inputs and outputs.
                 subscriptions = [];
@@ -197,9 +184,8 @@ export function ReactifyAngularComponent3(
                         componentInstance.instance[k] = props[k];
                     }
                 });
-                // })
 
-                // app.tick();
+                componentInstance.changeDetectorRef.detectChanges();
             }
         });
     });
