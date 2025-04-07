@@ -4,15 +4,39 @@ import { createRoot, Root } from 'react-dom/client';
 
 
 /**
- * Extend this component to automatically generate
- * bindings to a React component.
+ * This component can be used to automatically wrap a React
+ * component into Angular bindings with functional change detection.
+ * All you need to provide is the @Input and @Output interface
+ * for the component in order to tell Angular which keys correspond to what.
  *
- * ! You _must_ override the property `ngReactComponent`
+ * ### You _must_ override the property `ngReactComponent`.
+ *
  * Failure to do so will result in errors
- * `override readonly ngReactComponent = ReactFlowWrappableComponent;`
+ *
+ * `override readonly ngReactComponent = SomeReactFunction;`
+ *
+ * Example:
+ *
+ * ```ts
+ *  @Component({
+ *      selector: "app-react-wrapped",
+ *      standalone: true
+ *  })
+ *  export class MyReactWrappedComponent extends ReactifyNgComponent {
+ *
+ *      @Input() data: any;
+ *      @Input() options: any;
+ *      @Input() version: any;
+ *
+ *      // Notice how we wrap the result in an array, this is important because
+ *      // React can pass multiple properties to a callback and Angular can't.
+ *      @Output() onClick = new EventEmitter<[any]>();
+ *
+ * }
+ * ```
  */
 @Component({
-    selector: 'app-react-magic-wrapper',
+    selector: 'ngx-reactify',
     template: ``,
     standalone: true
 })
@@ -25,6 +49,8 @@ export class ReactifyNgComponent implements OnChanges, OnDestroy, AfterViewInit 
     ngReactComponent: React.FunctionComponent<any> | React.ComponentClass<any>;
 
     private _root: Root;
+
+    private _reactElement: React.ReactElement;
 
     constructor(
         protected readonly ngContainer: ViewContainerRef,
@@ -80,9 +106,8 @@ export class ReactifyNgComponent implements OnChanges, OnDestroy, AfterViewInit 
                     evtKeys.forEach(k => props[k] = (...args) => this[k].next(args));
                 })
 
-                this._root.render(
-                    React.createElement(this.ngReactComponent, { props: props as any })
-                );
+                this._reactElement ??= React.createElement(this.ngReactComponent, { props: props as any });
+                this._root.render(this._reactElement);
             }
             catch(err) {
                 console.error(err)
