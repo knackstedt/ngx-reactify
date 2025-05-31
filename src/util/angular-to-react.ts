@@ -221,14 +221,15 @@ export function WrapAngularComponentInReact({
     const ctx = this;
 
     const createWrappedElement = () => {
-
         reactTemplate ??= (el) => el;
         return React.memo((args) => {
+            const _props = {};
+            Object.assign(_props, props);
+            Object.assign(_props, args);
+
             // Is there a better way to do this?
             let subscriptions: Subscription[];
             let componentInstance: ComponentRef<any>;
-
-            Object.assign(props, args);
 
             React.useEffect(() => {
                 return () => {
@@ -276,15 +277,15 @@ export function WrapAngularComponentInReact({
 
                     // Now that everything has settled, bind inputs and outputs.
                     subscriptions = [];
-                    Object.entries(props).filter(([k, v]) => {
+                    Object.entries(_props).filter(([k, v]) => {
                         // @Outputs are always Event Emitters (I think)
                         if (v instanceof EventEmitter) {
                             subscriptions.push(
-                                componentInstance.instance[k]?.subscribe(evt => props[k].call(ctx, evt))
+                                componentInstance.instance[k]?.subscribe(evt => _props[k].call(ctx, evt))
                             );
                         }
                         else {
-                            componentInstance.instance[k] = props[k];
+                            componentInstance.instance[k] = _props[k];
                         }
                     });
 
@@ -292,7 +293,7 @@ export function WrapAngularComponentInReact({
                 }
             }));
         });
-    };
+    }
 
     return ngZone?.runOutsideAngular
         ? ngZone?.runOutsideAngular(createWrappedElement)
