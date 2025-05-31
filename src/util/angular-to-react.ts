@@ -221,12 +221,13 @@ export function WrapAngularComponentInReact({
     const ctx = this;
 
     const createWrappedElement = () => {
-        // Is there a better way to do this?
-        let subscriptions: Subscription[];
-        let componentInstance: ComponentRef<any>;
 
         reactTemplate ??= (el) => el;
         return React.memo((args) => {
+            // Is there a better way to do this?
+            let subscriptions: Subscription[];
+            let componentInstance: ComponentRef<any>;
+
             Object.assign(props, args);
 
             React.useEffect(() => {
