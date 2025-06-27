@@ -1,0 +1,15 @@
+
+<div class="parent-block">
+    <h3>I am the Angular Container.</h3>
+    <pre style="text-align: left;">
+I contain some cool properties:
+    numberOfClicks: {{numberOfClicks}}
+    </pre>
+    <div class="child-element">
+        <rgx-my-component
+            [(value)]="numberOfClicks"
+            (fireMessage)="onMessageFired()"
+        />
+    </div>
+</div>
+
