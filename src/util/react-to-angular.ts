@@ -1,7 +1,6 @@
-import { AfterViewInit, Component, NgZone, OnChanges, OnDestroy, SimpleChanges, ViewContainerRef } from '@angular/core';
+import { AfterViewInit, ChangeDetectorRef, Component, EventEmitter, NgZone, OnChanges, OnDestroy, SimpleChanges, ViewContainerRef } from '@angular/core';
 import * as React from 'react';
 import { createRoot, Root } from 'react-dom/client';
-
 
 /**
  * This component can be used to automatically wrap a React
@@ -52,9 +51,12 @@ export class ReactifyNgComponent implements OnChanges, OnDestroy, AfterViewInit 
 
     private _reactElement: React.ReactElement;
 
+    private _props: Object = {};
+
     constructor(
         protected readonly ngContainer: ViewContainerRef,
-        protected readonly ngZone: NgZone
+        protected readonly ngZone: NgZone,
+        protected readonly ngChangeDetector: ChangeDetectorRef
     ) {
     }
 
@@ -90,23 +92,39 @@ export class ReactifyNgComponent implements OnChanges, OnDestroy, AfterViewInit 
                 const keys = Object.keys(this).filter(k => !/^(?:_|ng)/.test(k));
 
                 // Get all property keys from the class
-                const propKeys = keys.filter(k => !k.startsWith("on"));
+                const propKeys = keys.filter(k => !(this[k] instanceof EventEmitter));
                 // Get all event handler keys from the class
-                const evtKeys = keys.filter(k => k.startsWith("on"));
+                const evtKeys = keys.filter(k => this[k] instanceof EventEmitter);
 
-                const props = {};
                 // Project all key properties onto `props`
-                propKeys.forEach(k => props[k] = this[k]);
+                propKeys.forEach(k => this._props[k] = this[k]);
 
                 // Attempt to ensure no zone is lost during the event emitter fires
                 this.ngZone.runGuarded(() => {
                     // Bind all event handlers.
                     // ! important Angular uses EventEmitter, React uses
                     // a different method of event binding
-                    evtKeys.forEach(k => props[k] = (...args) => this[k].next(args));
+                    evtKeys.forEach(k => {
+                        if (k.endsWith("Change") && Object.hasOwn(this, k.replace(/Change$/, ''))) {
+                            // Detect if this should be treated as a 2-way binding. If so we'll assume
+                            // there's only ever one item in the arguments list.
+                            this._props[k] = (arg) => {
+                                (this[k] as EventEmitter<any>).emit(arg);
+                                this.ngChangeDetector.markForCheck();
+                            }
+                        }
+                        else {
+                            // We're assuming this is NOT a 2-way binding, just an event so we'll pass
+                            // everything back to the parent component in an array.
+                            this._props[k] = (...args) => {
+                                (this[k] as EventEmitter<any>).emit(args);
+                                this.ngChangeDetector.markForCheck();
+                            }
+                        }
+                    });
                 })
 
-                this._reactElement ??= React.createElement(this.ngReactComponent, { props: props as any });
+                this._reactElement = React.createElement(this.ngReactComponent, { props: this._props as any });
                 this._root.render(this._reactElement);
             }
             catch(err) {
