@@ -1,4 +1,4 @@
-import { AfterViewInit, ChangeDetectorRef, Component, EventEmitter, NgZone, OnChanges, OnDestroy, SimpleChanges, ViewContainerRef } from '@angular/core';
+import { AfterViewInit, ChangeDetectorRef, Directive, EventEmitter, NgZone, OnChanges, OnDestroy, SimpleChanges, ViewContainerRef } from '@angular/core';
 import * as React from 'react';
 import { createRoot, Root } from 'react-dom/client';
 
@@ -34,9 +34,7 @@ import { createRoot, Root } from 'react-dom/client';
  * }
  * ```
  */
-@Component({
-    selector: 'ngx-reactify',
-    template: ``,
+@Directive({
     standalone: true
 })
 export class ReactifyNgComponent implements OnChanges, OnDestroy, AfterViewInit {
@@ -133,3 +131,15 @@ export class ReactifyNgComponent implements OnChanges, OnDestroy, AfterViewInit 
         })
     }
 }
+
+// We replace all React functions with Angular EventEmitters
+// thus, anything typed as a function will automatically be transformed.
+export type ReactifyPropsTypeToAngular<T> = {
+    [K in keyof T]: T[K] extends (...args) => any ? EventEmitter<
+        Parameters<T[K]> extends [any] ? Parameters<T[K]>[0] : Parameters<T[K]>
+    > : T[K];
+};
+
+// export function ReactifyNgComponent2<T = any>(): new() => ReactifyNgComponent & ReactifyPropsTypeToAngular<T> {
+//     return ReactifyNgComponent as never;
+// };
