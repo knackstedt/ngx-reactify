@@ -231,15 +231,6 @@ export function WrapAngularComponentInReact({
             let subscriptions: Subscription[];
             let componentInstance: ComponentRef<any>;
 
-            React.useEffect(() => {
-                return () => {
-                    // Cleanup and dispose leftover Angular objects
-                    appRef?.detachView(componentInstance.hostView);
-                    subscriptions?.forEach(s => s?.unsubscribe());
-                    componentInstance?.destroy();
-                };
-            }, []);
-
             const tripChangeDetection = () =>
                 componentInstance?.changeDetectorRef?.detectChanges();
 
@@ -254,11 +245,16 @@ export function WrapAngularComponentInReact({
             return reactTemplate(React.createElement(containerTag, {
                 ...attrObj,
                 ref: async (node) => {
-                    if (componentInstance) return;
+                    // When the node is empty, we can safely clean up the angular instance
+                    // and detach views.
+                    if (!node) {
+                        // Cleanup and dispose leftover Angular objects
+                        appRef?.detachView(componentInstance.hostView);
+                        subscriptions?.forEach(s => s?.unsubscribe());
+                        componentInstance?.destroy();
+                    }
 
-                    // Not sure if this ever actually happens, added as a preventative measure
-                    // to memory leaks.
-                    subscriptions?.forEach(s => s?.unsubscribe());
+                    if (componentInstance) return;
 
                     const bootstrap = () => {
                         // Init the Angular component with the context of the root Angular app.
@@ -271,6 +267,7 @@ export function WrapAngularComponentInReact({
                         appRef.attachView(componentInstance.hostView);
                     };
 
+                    // Bootstrap in the Angular zone if it's provided
                     ngZone?.runTask
                         ? ngZone?.runTask(bootstrap)
                         : bootstrap();
@@ -337,66 +334,130 @@ export const AutoWrapAngularObject = ({
     });
 };
 
-/**
- * Bootstrap an Angular component with `createApplication` and export it under a
- * react Element.
- * Usage: React top-level application embedding an Angular component.
- */
-export function ReactifyStandaloneAngularComponent(
+type TransformProperties<T> = {
+    [K in keyof T]: T[K] extends EventEmitter<infer U> ? React.Dispatch<React.SetStateAction<U>> : T[K];
+};
+
+export function ReactifyStandaloneAngularComponent<T extends Type<any>>(
+    component: T,
+    providers: (Provider | EnvironmentProviders)[] = [],
+    containerTag: string = 'div',
+    debug = false
+) {
+    return React.memo((props: Partial<TransformProperties<InstanceType<T>>>) => {
+        return ReactifyStandaloneAngularElement(
+            component as any,
+            props,
+            providers,
+            containerTag,
+            debug
+        );
+    });
+}
+
+export function ReactifyStandaloneAngularElement(
     component: Type<any>,
     props: any = {},
     providers: (Provider | EnvironmentProviders)[] = [],
-    containerTag: string = 'div'
+    containerTag: string = 'div',
+    debug = false
 ) {
+    if (debug) {
+        console.info(`[ngx-reactify/${containerTag}]: Begin render`, { args: { component, props, providers, containerTag } });
+    }
+
+    // Preserve React execution context
     const ctx = this;
 
-    // Is there a better way to do this?
     let subscriptions: Subscription[];
     let app: ApplicationRef;
 
+    // The Angular component instance
+    let instance;
+
+    let containerNode = document.createElement("ngx-container");
+
+    const attachProperties = () => {
+        subscriptions?.forEach(s => s.unsubscribe());
+        subscriptions = [];
+
+        Object.keys(props).filter((k) => {
+            // If the property is being passed in as a bound dispatchState, we'll
+            // handle it as a eventEmitter on Angular's side.
+            if (props[k].name == 'bound dispatchSetState') {
+                subscriptions.push(
+                    instance[k]?.subscribe(evt => props[k].call(ctx, evt))
+                );
+            }
+            // else if (v instanceof EventEmitter) {
+            //     subscriptions.push(
+            //         instance[k]?.subscribe(evt => props[k].call(ctx, evt))
+            //     );
+            // }
+            else {
+                instance[k] = props[k];
+            }
+        });
+    };
+
     React.useEffect(() => {
-        return () => {
-            // Code to run when the component unmounts
-            subscriptions?.forEach(s => s?.unsubscribe());
-            app?.destroy();
-        };
-    }, []);
+        if (!instance) return;
+
+        attachProperties();
+    });
 
     return React.createElement(containerTag, {
-        ref: async (node) => {
-            // Not sure if this ever actually happens, added as a preventative measure
-            // to memory leaks.
-            subscriptions?.forEach(s => s?.unsubscribe());
-            app?.destroy();
+        ref: async (node: HTMLElement) => {
+
+            // If the node is removed, we need to cleanup
+            if (!node) {
+                if (debug) {
+                    console.info(`[ngx-reactify/${containerTag}]: Dispose`, { args: { component, props, providers, containerTag } });
+                }
+
+                subscriptions?.forEach(s => s?.unsubscribe());
+                app?.destroy();
+
+                return;
+            }
+
+            if (debug) {
+                console.info(`[ngx-reactify/${containerTag}]: NG Bootstrap`, { args: { component, props, providers, containerTag } });
+            }
+            node.append(containerNode);
 
             // Init an Angular application root & bootstrap it to a DOM element.
             app = await createApplication({ providers });
-            const base = app.bootstrap(component, node);
-            const { instance } = base;
 
+            if (debug) {
+                console.info(`[ngx-reactify/${containerTag}]: NG App Created`, { args: { component, props, providers, containerTag } });
+            }
+
+            const base = app.bootstrap(component, containerNode);
+            instance = base.instance;
+
+            if (debug) {
+                console.info(`[ngx-reactify/${containerTag}]: NG Bootstrapped`, { args: { component, props, providers, containerTag } });
+            }
 
             // Wait for the JS to finish rendering and initing.
             await firstValueFrom(app.isStable);
 
+            if (debug) {
+                console.info(`[ngx-reactify/${containerTag}]: NG Stable`, { args: { component, props, providers, containerTag } });
+            }
+
             // Now that everything has settled, bind inputs and outputs.
-            subscriptions = [];
-            Object.entries(props).filter(([k, v]) => {
-                // @Outputs are always Event Emitters (I think)
-                if (v instanceof EventEmitter) {
-                    subscriptions.push(
-                        instance[k]?.subscribe(evt => props[k].call(ctx, evt))
-                    );
-                }
-                else {
-                    instance[k] = props[k];
-                }
-            });
+            attachProperties();
 
             base.changeDetectorRef.detectChanges();
+
+            if (debug) {
+                console.info(`[ngx-reactify/${containerTag}]: Render Complete`, { args: { component, props, providers, containerTag } });
+            }
         }
     });
 }
-
 
 
 // These exports exist to attempt to make the API have minimal breaking changes.
